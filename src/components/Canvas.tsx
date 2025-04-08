@@ -14,6 +14,7 @@ const Canvas = () => {
   const [dragId, setDragId] = useState<string | null>(null);
   const isDragging = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
+  const groupOffsets = useRef<Record<string, { dx: number; dy: number }>>({});
   const suppressClear = useRef(false);
 
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -42,11 +43,27 @@ const Canvas = () => {
       e.stopPropagation();
       suppressClear.current = true;
 
-      offset.current = {
-        x: cursor.x - itemX,
-        y: cursor.y - itemY,
-      };
-      selectItem(itemId);
+      if (selectedIds.includes(itemId)) {
+        // Group drag
+        groupOffsets.current = {};
+        selectedIds.forEach((id) => {
+          const item = items.find((i) => i.id === id);
+          if (item) {
+            groupOffsets.current[id] = {
+              dx: cursor.x - item.x,
+              dy: cursor.y - item.y,
+            };
+          }
+        });
+      } else {
+        // Solo drag
+        selectItem(itemId);
+        offset.current = {
+          x: cursor.x - itemX,
+          y: cursor.y - itemY,
+        };
+      }
+
       setDragId(itemId);
       isDragging.current = true;
     } else {
@@ -62,7 +79,18 @@ const Canvas = () => {
     if (!cursor) return;
 
     if (dragId) {
-      updateItemPosition(dragId, cursor.x - offset.current.x, cursor.y - offset.current.y);
+      if (groupOffsets.current[dragId]) {
+        // Move all selected items
+        selectedIds.forEach((id) => {
+          const offset = groupOffsets.current[id];
+          if (offset) {
+            updateItemPosition(id, cursor.x - offset.dx, cursor.y - offset.dy);
+          }
+        });
+      } else {
+        // Solo drag fallback
+        updateItemPosition(dragId, cursor.x - offset.current.x, cursor.y - offset.current.y);
+      }
     }
 
     if (rotatingId) {
@@ -125,6 +153,7 @@ const Canvas = () => {
     setRotatingId(null);
     setMarqueeStart(null);
     setMarqueeEnd(null);
+    groupOffsets.current = {};
     isDragging.current = false;
 
     if (!didSuppress) {
@@ -176,7 +205,7 @@ const Canvas = () => {
                     height={size}
                     fill={item.type === 'mic' ? 'black' : 'gray'}
                     onMouseDown={(e) => handleMouseDown(e, item.id, item.x, item.y)}
-                    onClick={(e) => e.stopPropagation()} // ← prevent canvas click after shape interaction
+                    onClick={(e) => e.stopPropagation()}
                   />
                   {isSelected && (
                     <>
