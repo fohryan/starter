@@ -1,25 +1,43 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { usePlanStore } from '@/store/planStore';
 
 const Canvas = () => {
   const items = usePlanStore((state) => state.items);
   const selectedIds = usePlanStore((state) => state.selectedItemIds);
   const selectItem = usePlanStore((state) => state.selectItem);
+  const toggleItemSelection = usePlanStore((state) => state.toggleItemSelection);
   const selectMultipleItems = usePlanStore((state) => state.selectMultipleItems);
   const clearSelection = usePlanStore((state) => state.clearSelection);
   const updateItemPosition = usePlanStore((state) => state.updateItemPosition);
   const updateItemRotation = usePlanStore((state) => state.updateItemRotation);
+  const removeItems = usePlanStore((state) => state.removeItems);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const isDragging = useRef(false);
+  const didDrag = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
   const groupOffsets = useRef<Record<string, { dx: number; dy: number }>>({});
   const suppressClear = useRef(false);
+  const mouseDownMeta = useRef<{ itemId: string | null; shiftKey: boolean }>({
+    itemId: null,
+    shiftKey: false,
+  });
 
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null);
   const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+        e.preventDefault();
+        removeItems(selectedIds);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds, removeItems]);
 
   const getCursorPoint = (e: React.MouseEvent) => {
     const pt = svgRef.current?.createSVGPoint();
@@ -38,13 +56,18 @@ const Canvas = () => {
     const cursor = getCursorPoint(e);
     if (!cursor) return;
 
+    didDrag.current = false;
+    mouseDownMeta.current = { itemId: itemId ?? null, shiftKey: e.shiftKey };
+
     if (itemId && itemX !== undefined && itemY !== undefined) {
-      console.log('[MouseDown] Shape click:', itemId);
       e.stopPropagation();
       suppressClear.current = true;
 
+      if (!e.shiftKey && !selectedIds.includes(itemId)) {
+        selectItem(itemId);
+      }
+
       if (selectedIds.includes(itemId)) {
-        // Group drag
         groupOffsets.current = {};
         selectedIds.forEach((id) => {
           const item = items.find((i) => i.id === id);
@@ -56,8 +79,6 @@ const Canvas = () => {
           }
         });
       } else {
-        // Solo drag
-        selectItem(itemId);
         offset.current = {
           x: cursor.x - itemX,
           y: cursor.y - itemY,
@@ -67,7 +88,6 @@ const Canvas = () => {
       setDragId(itemId);
       isDragging.current = true;
     } else {
-      console.log('[MouseDown] Canvas click — initiating marquee');
       suppressClear.current = false;
       setMarqueeStart({ x: cursor.x, y: cursor.y });
       setMarqueeEnd({ x: cursor.x, y: cursor.y });
@@ -79,8 +99,9 @@ const Canvas = () => {
     if (!cursor) return;
 
     if (dragId) {
+      didDrag.current = true;
+
       if (groupOffsets.current[dragId]) {
-        // Move all selected items
         selectedIds.forEach((id) => {
           const offset = groupOffsets.current[id];
           if (offset) {
@@ -88,7 +109,6 @@ const Canvas = () => {
           }
         });
       } else {
-        // Solo drag fallback
         updateItemPosition(dragId, cursor.x - offset.current.x, cursor.y - offset.current.y);
       }
     }
@@ -111,14 +131,25 @@ const Canvas = () => {
 
   const handleMouseUp = () => {
     let didSuppress = false;
+    const { itemId, shiftKey } = mouseDownMeta.current;
+
+    if (!didDrag.current && itemId) {
+      if (shiftKey) {
+        toggleItemSelection(itemId);
+        suppressClear.current = true;
+        didSuppress = true;
+      } else if (selectedIds.includes(itemId) && selectedIds.length > 1) {
+        selectItem(itemId);
+        suppressClear.current = true;
+        didSuppress = true;
+      }
+    }
 
     if (marqueeStart && marqueeEnd) {
       const x1 = Math.min(marqueeStart.x, marqueeEnd.x);
       const y1 = Math.min(marqueeStart.y, marqueeEnd.y);
       const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
       const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
-
-      console.log('[MouseUp] Marquee box:', { x1, y1, x2, y2 });
 
       const withinBox = items.filter((item) => {
         const size = 40;
@@ -132,15 +163,9 @@ const Canvas = () => {
       });
 
       if (withinBox.length > 0) {
-        console.log(
-          '[MouseUp] Marquee selected items:',
-          withinBox.map((i) => i.id)
-        );
         selectMultipleItems(withinBox.map((i) => i.id));
         suppressClear.current = true;
         didSuppress = true;
-      } else {
-        console.log('[MouseUp] Marquee selected nothing');
       }
     }
 
@@ -155,6 +180,8 @@ const Canvas = () => {
     setMarqueeEnd(null);
     groupOffsets.current = {};
     isDragging.current = false;
+    didDrag.current = false;
+    mouseDownMeta.current = { itemId: null, shiftKey: false };
 
     if (!didSuppress) {
       suppressClear.current = false;
@@ -163,10 +190,7 @@ const Canvas = () => {
 
   const handleCanvasClick = () => {
     if (!suppressClear.current) {
-      console.log('[CanvasClick] Clearing selection');
       clearSelection();
-    } else {
-      console.log('[CanvasClick] Suppressed — not clearing');
     }
   };
 
