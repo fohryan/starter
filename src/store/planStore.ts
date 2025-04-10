@@ -15,7 +15,7 @@ export interface StageItem {
 interface PlanState {
   items: StageItem[];
   selectedItemIds: string[];
-  addItem: (type: StageItemType, x: number, y: number) => void;
+  addItem: (type: StageItemType, x: number, y: number, rotation?: number) => void;
   selectItem: (id: string) => void;
   toggleItemSelection: (id: string) => void;
   selectMultipleItems: (ids: string[]) => void;
@@ -29,7 +29,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   items: [],
   selectedItemIds: [],
 
-  addItem: (type, x, y) =>
+  addItem: (type, x, y, rotation = 0) =>
     set((state) => ({
       items: [
         ...state.items,
@@ -38,7 +38,7 @@ export const usePlanStore = create<PlanState>((set, get) => ({
           type,
           x,
           y,
-          rotation: 0,
+          rotation, // ✅ use provided rotation or default to 0
           label: undefined,
         },
       ],
@@ -57,7 +57,6 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       return { selectedItemIds: Array.from(selected) };
     }),
 
-  // ✅ Fixed to always return a new array reference
   selectMultipleItems: (ids) => set(() => ({ selectedItemIds: [...ids] })),
 
   clearSelection: () => set(() => ({ selectedItemIds: [] })),

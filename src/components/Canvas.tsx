@@ -24,7 +24,13 @@ const Canvas = () => {
   const groupOffsets = useRef<Record<string, { dx: number; dy: number }>>({});
   const suppressClear = useRef(false);
   const isAltCloning = useRef(false);
-  const clonePreview = useRef<{ id: string; type: string; x: number; y: number; rotation: number } | null>(null);
+  const clonePreview = useRef<{
+    id: string;
+    type: string;
+    x: number;
+    y: number;
+    rotation: number;
+  } | null>(null);
 
   const [cloneGhostState, setCloneGhostState] = useState<typeof clonePreview.current>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -38,7 +44,7 @@ const Canvas = () => {
         removeItems(selectedIds);
       }
       if (e.altKey && dragId && !isAltCloning.current && isDragging.current) {
-        const original = items.find(i => i.id === dragId);
+        const original = items.find((i) => i.id === dragId);
         if (original) {
           isAltCloning.current = true;
           clonePreview.current = {
@@ -46,7 +52,7 @@ const Canvas = () => {
             id: uuid(),
             x: original.x,
             y: original.y,
-            rotation: original.rotation
+            rotation: original.rotation,
           };
           setCloneGhostState({ ...clonePreview.current });
           if (originalPosition.current) {
@@ -117,7 +123,7 @@ const Canvas = () => {
         y: cursor.y - itemY,
       };
 
-      const original = items.find(i => i.id === itemId);
+      const original = items.find((i) => i.id === itemId);
       if (original) {
         originalPosition.current = { x: original.x, y: original.y };
       }
@@ -129,7 +135,7 @@ const Canvas = () => {
           id: uuid(),
           x: original.x,
           y: original.y,
-          rotation: original.rotation
+          rotation: original.rotation,
         };
         setCloneGhostState({ ...clonePreview.current });
       } else {
@@ -164,7 +170,11 @@ const Canvas = () => {
         clonePreview.current.y = cursor.y - dy;
 
         setCloneGhostState({ ...clonePreview.current });
-        console.log('[CloneGhost] Position updated to:', clonePreview.current.x, clonePreview.current.y);
+        console.log(
+          '[CloneGhost] Position updated to:',
+          clonePreview.current.x,
+          clonePreview.current.y
+        );
       } else if (groupOffsets.current[dragId]) {
         selectedIds.forEach((id) => {
           const offset = groupOffsets.current[id];
@@ -194,63 +204,64 @@ const Canvas = () => {
   };
 
   const applyMarqueeSelection = (e: React.MouseEvent) => {
-  if (!marqueeStart || !marqueeEnd) return;
+    if (!marqueeStart || !marqueeEnd) return;
 
-  console.log('[Marquee] End at', marqueeEnd.x, marqueeEnd.y);
-  const x1 = Math.min(marqueeStart.x, marqueeEnd.x);
-  const y1 = Math.min(marqueeStart.y, marqueeEnd.y);
-  const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
-  const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
+    console.log('[Marquee] End at', marqueeEnd.x, marqueeEnd.y);
+    const x1 = Math.min(marqueeStart.x, marqueeEnd.x);
+    const y1 = Math.min(marqueeStart.y, marqueeEnd.y);
+    const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
+    const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
 
-  const size = 40;
-  const half = size / 2;
+    const size = 40;
+    const half = size / 2;
 
-  const idsInBox = items
-    .filter((item) => {
-      const left = item.x - half;
-      const right = item.x + half;
-      const top = item.y - half;
-      const bottom = item.y + half;
+    const idsInBox = items
+      .filter((item) => {
+        const left = item.x - half;
+        const right = item.x + half;
+        const top = item.y - half;
+        const bottom = item.y + half;
 
-      const intersects = (
-        right >= x1 && left <= x2 &&
-        bottom >= y1 && top <= y2
-      );
+        const intersects = right >= x1 && left <= x2 && bottom >= y1 && top <= y2;
 
-      if (intersects) {
-        console.log(`[Marquee] ✓ Including item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`);
-      } else {
-        console.log(`[Marquee] ✗ Skipping item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`);
-      }
+        if (intersects) {
+          console.log(
+            `[Marquee] ✓ Including item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`
+          );
+        } else {
+          console.log(
+            `[Marquee] ✗ Skipping item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`
+          );
+        }
 
-      return intersects;
-    })
-    .map((item) => item.id);
+        return intersects;
+      })
+      .map((item) => item.id);
 
-  console.log('[Marquee] Items found:', idsInBox);
+    console.log('[Marquee] Items found:', idsInBox);
 
-  if (e.shiftKey) {
-    idsInBox.forEach(toggleItemSelection);
-  } else {
-    selectMultipleItems(idsInBox);
-  }
-};
+    if (e.shiftKey) {
+      idsInBox.forEach(toggleItemSelection);
+    } else {
+      selectMultipleItems(idsInBox);
+    }
+  };
 
-const handleMouseUp = (e: React.MouseEvent) => {
-  if (isAltCloning.current && clonePreview.current) {
-    const { type, x, y } = clonePreview.current;
-    addItem(type as any, x, y);
-  }
+  const handleMouseUp = (e: React.MouseEvent) => {
+    if (isAltCloning.current && clonePreview.current) {
+      const { type, x, y, rotation } = clonePreview.current;
+      addItem(type as any, x, y, rotation); // ✅ Includes rotation now
+    }
 
-  applyMarqueeSelection(e);
+    applyMarqueeSelection(e);
 
-  isAltCloning.current = false;
-  clonePreview.current = null;
-  setCloneGhostState(null);
-  originalPosition.current = null;
+    isAltCloning.current = false;
+    clonePreview.current = null;
+    setCloneGhostState(null);
+    originalPosition.current = null;
 
-  setDragId(null);
-  setRotatingId(null);
+    setDragId(null);
+    setRotatingId(null);
     setMarqueeStart(null);
     setMarqueeEnd(null);
     groupOffsets.current = {};
@@ -280,7 +291,7 @@ const handleMouseUp = (e: React.MouseEvent) => {
           <g>
             {items.map((item) => {
               const isSelected = selectedIds.includes(item.id);
-console.log(`[Render] Item ${item.id} is ${isSelected ? 'ACTIVE' : 'inactive'}`);
+              console.log(`[Render] Item ${item.id} is ${isSelected ? 'ACTIVE' : 'inactive'}`);
               const size = 40;
               const half = size / 2;
 
