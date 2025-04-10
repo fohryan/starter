@@ -57,7 +57,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       return { selectedItemIds: Array.from(selected) };
     }),
 
-  selectMultipleItems: (ids) => set(() => ({ selectedItemIds: ids })),
+  // ✅ Fixed to always return a new array reference
+  selectMultipleItems: (ids) => set(() => ({ selectedItemIds: [...ids] })),
 
   clearSelection: () => set(() => ({ selectedItemIds: [] })),
 

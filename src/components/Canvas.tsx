@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { usePlanStore } from '@/store/planStore';
+import { v4 as uuid } from 'uuid';
 
 const Canvas = () => {
   const items = usePlanStore((state) => state.items);
-  const selectedIds = usePlanStore((state) => state.selectedItemIds);
+  const selectedIds = usePlanStore((state) => state.selectedItemIds, shallow);
   const selectItem = usePlanStore((state) => state.selectItem);
   const toggleItemSelection = usePlanStore((state) => state.toggleItemSelection);
   const selectMultipleItems = usePlanStore((state) => state.selectMultipleItems);
@@ -11,19 +13,20 @@ const Canvas = () => {
   const updateItemPosition = usePlanStore((state) => state.updateItemPosition);
   const updateItemRotation = usePlanStore((state) => state.updateItemRotation);
   const removeItems = usePlanStore((state) => state.removeItems);
+  const addItem = usePlanStore((state) => state.addItem);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
+  const originalPosition = useRef<{ x: number; y: number } | null>(null);
   const groupOffsets = useRef<Record<string, { dx: number; dy: number }>>({});
   const suppressClear = useRef(false);
-  const mouseDownMeta = useRef<{ itemId: string | null; shiftKey: boolean }>({
-    itemId: null,
-    shiftKey: false,
-  });
+  const isAltCloning = useRef(false);
+  const clonePreview = useRef<{ id: string; type: string; x: number; y: number; rotation: number } | null>(null);
 
+  const [cloneGhostState, setCloneGhostState] = useState<typeof clonePreview.current>(null);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [marqueeStart, setMarqueeStart] = useState<{ x: number; y: number } | null>(null);
   const [marqueeEnd, setMarqueeEnd] = useState<{ x: number; y: number } | null>(null);
@@ -34,10 +37,38 @@ const Canvas = () => {
         e.preventDefault();
         removeItems(selectedIds);
       }
+      if (e.altKey && dragId && !isAltCloning.current && isDragging.current) {
+        const original = items.find(i => i.id === dragId);
+        if (original) {
+          isAltCloning.current = true;
+          clonePreview.current = {
+            ...original,
+            id: uuid(),
+            x: original.x,
+            y: original.y,
+            rotation: original.rotation
+          };
+          setCloneGhostState({ ...clonePreview.current });
+          if (originalPosition.current) {
+            updateItemPosition(dragId, originalPosition.current.x, originalPosition.current.y);
+          }
+        }
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.altKey && isAltCloning.current) {
+        isAltCloning.current = false;
+        clonePreview.current = null;
+        setCloneGhostState(null);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, removeItems]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [selectedIds, removeItems, dragId, items, updateItemPosition]);
 
   const getCursorPoint = (e: React.MouseEvent) => {
     const pt = svgRef.current?.createSVGPoint();
@@ -57,13 +88,14 @@ const Canvas = () => {
     if (!cursor) return;
 
     didDrag.current = false;
-    mouseDownMeta.current = { itemId: itemId ?? null, shiftKey: e.shiftKey };
 
     if (itemId && itemX !== undefined && itemY !== undefined) {
       e.stopPropagation();
       suppressClear.current = true;
 
-      if (!e.shiftKey && !selectedIds.includes(itemId)) {
+      if (e.shiftKey) {
+        toggleItemSelection(itemId);
+      } else {
         selectItem(itemId);
       }
 
@@ -78,11 +110,32 @@ const Canvas = () => {
             };
           }
         });
-      } else {
-        offset.current = {
-          x: cursor.x - itemX,
-          y: cursor.y - itemY,
+      }
+
+      offset.current = {
+        x: cursor.x - itemX,
+        y: cursor.y - itemY,
+      };
+
+      const original = items.find(i => i.id === itemId);
+      if (original) {
+        originalPosition.current = { x: original.x, y: original.y };
+      }
+
+      if (e.altKey && original) {
+        isAltCloning.current = true;
+        clonePreview.current = {
+          ...original,
+          id: uuid(),
+          x: original.x,
+          y: original.y,
+          rotation: original.rotation
         };
+        setCloneGhostState({ ...clonePreview.current });
+      } else {
+        isAltCloning.current = false;
+        clonePreview.current = null;
+        setCloneGhostState(null);
       }
 
       setDragId(itemId);
@@ -91,6 +144,7 @@ const Canvas = () => {
       suppressClear.current = false;
       setMarqueeStart({ x: cursor.x, y: cursor.y });
       setMarqueeEnd({ x: cursor.x, y: cursor.y });
+      console.log('[Marquee] Start at', cursor.x, cursor.y);
     }
   };
 
@@ -101,7 +155,17 @@ const Canvas = () => {
     if (dragId) {
       didDrag.current = true;
 
-      if (groupOffsets.current[dragId]) {
+      if (isAltCloning.current && clonePreview.current) {
+        const offsetData = groupOffsets.current[dragId] ?? offset.current;
+        const dx = offsetData?.dx ?? offsetData?.x ?? 0;
+        const dy = offsetData?.dy ?? offsetData?.y ?? 0;
+
+        clonePreview.current.x = cursor.x - dx;
+        clonePreview.current.y = cursor.y - dy;
+
+        setCloneGhostState({ ...clonePreview.current });
+        console.log('[CloneGhost] Position updated to:', clonePreview.current.x, clonePreview.current.y);
+      } else if (groupOffsets.current[dragId]) {
         selectedIds.forEach((id) => {
           const offset = groupOffsets.current[id];
           if (offset) {
@@ -129,63 +193,48 @@ const Canvas = () => {
     }
   };
 
-  const handleMouseUp = () => {
-    let didSuppress = false;
-    const { itemId, shiftKey } = mouseDownMeta.current;
+  const applyMarqueeSelection = (e: React.MouseEvent) => {
+  if (!marqueeStart || !marqueeEnd) return;
 
-    if (!didDrag.current && itemId) {
-      if (shiftKey) {
-        toggleItemSelection(itemId);
-        suppressClear.current = true;
-        didSuppress = true;
-      } else if (selectedIds.includes(itemId) && selectedIds.length > 1) {
-        selectItem(itemId);
-        suppressClear.current = true;
-        didSuppress = true;
-      }
-    }
+  console.log('[Marquee] End at', marqueeEnd.x, marqueeEnd.y);
+  const x1 = Math.min(marqueeStart.x, marqueeEnd.x);
+  const y1 = Math.min(marqueeStart.y, marqueeEnd.y);
+  const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
+  const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
 
-    if (marqueeStart && marqueeEnd) {
-      const x1 = Math.min(marqueeStart.x, marqueeEnd.x);
-      const y1 = Math.min(marqueeStart.y, marqueeEnd.y);
-      const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
-      const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
+  const idsInBox = items
+    .filter((item) => item.x >= x1 && item.x <= x2 && item.y >= y1 && item.y <= y2)
+    .map((item) => item.id);
 
-      const withinBox = items.filter((item) => {
-        const size = 40;
-        const half = size / 2;
-        const ix1 = item.x - half;
-        const iy1 = item.y - half;
-        const ix2 = item.x + half;
-        const iy2 = item.y + half;
+  console.log('[Marquee] Items found:', idsInBox);
 
-        return !(ix2 < x1 || ix1 > x2 || iy2 < y1 || iy1 > y2);
-      });
+  if (e.shiftKey) {
+    idsInBox.forEach(toggleItemSelection);
+  } else {
+    selectMultipleItems(idsInBox);
+  }
+};
 
-      if (withinBox.length > 0) {
-        selectMultipleItems(withinBox.map((i) => i.id));
-        suppressClear.current = true;
-        didSuppress = true;
-      }
-    }
+const handleMouseUp = (e: React.MouseEvent) => {
+  if (isAltCloning.current && clonePreview.current) {
+    const { type, x, y } = clonePreview.current;
+    addItem(type as any, x, y);
+  }
 
-    if (rotatingId) {
-      suppressClear.current = true;
-      didSuppress = true;
-    }
+  applyMarqueeSelection(e);
 
-    setDragId(null);
-    setRotatingId(null);
+  isAltCloning.current = false;
+  clonePreview.current = null;
+  setCloneGhostState(null);
+  originalPosition.current = null;
+
+  setDragId(null);
+  setRotatingId(null);
     setMarqueeStart(null);
     setMarqueeEnd(null);
     groupOffsets.current = {};
     isDragging.current = false;
     didDrag.current = false;
-    mouseDownMeta.current = { itemId: null, shiftKey: false };
-
-    if (!didSuppress) {
-      suppressClear.current = false;
-    }
   };
 
   const handleCanvasClick = () => {
@@ -225,8 +274,8 @@ const Canvas = () => {
                   <rect
                     x={item.x - half}
                     y={item.y - half}
-                    width={size}
-                    height={size}
+                    width={40}
+                    height={40}
                     fill={item.type === 'mic' ? 'black' : 'gray'}
                     onMouseDown={(e) => handleMouseDown(e, item.id, item.x, item.y)}
                     onClick={(e) => e.stopPropagation()}
@@ -281,6 +330,21 @@ const Canvas = () => {
                 </g>
               );
             })}
+
+            {cloneGhostState && (
+              <g
+                transform={`translate(${cloneGhostState.x}, ${cloneGhostState.y}) rotate(${cloneGhostState.rotation})`}
+                opacity={0.7}
+              >
+                <rect
+                  x={-20}
+                  y={-20}
+                  width={40}
+                  height={40}
+                  fill={cloneGhostState.type === 'mic' ? 'black' : 'gray'}
+                />
+              </g>
+            )}
           </g>
 
           {marqueeStart && marqueeEnd && (
