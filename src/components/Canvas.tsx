@@ -95,7 +95,7 @@ const Canvas = () => {
 
       if (e.shiftKey) {
         toggleItemSelection(itemId);
-      } else {
+      } else if (!selectedIds.includes(itemId)) {
         selectItem(itemId);
       }
 
@@ -141,7 +141,7 @@ const Canvas = () => {
       setDragId(itemId);
       isDragging.current = true;
     } else {
-      suppressClear.current = false;
+      suppressClear.current = true;
       setMarqueeStart({ x: cursor.x, y: cursor.y });
       setMarqueeEnd({ x: cursor.x, y: cursor.y });
       console.log('[Marquee] Start at', cursor.x, cursor.y);
@@ -202,8 +202,29 @@ const Canvas = () => {
   const x2 = Math.max(marqueeStart.x, marqueeEnd.x);
   const y2 = Math.max(marqueeStart.y, marqueeEnd.y);
 
+  const size = 40;
+  const half = size / 2;
+
   const idsInBox = items
-    .filter((item) => item.x >= x1 && item.x <= x2 && item.y >= y1 && item.y <= y2)
+    .filter((item) => {
+      const left = item.x - half;
+      const right = item.x + half;
+      const top = item.y - half;
+      const bottom = item.y + half;
+
+      const intersects = (
+        right >= x1 && left <= x2 &&
+        bottom >= y1 && top <= y2
+      );
+
+      if (intersects) {
+        console.log(`[Marquee] ✓ Including item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`);
+      } else {
+        console.log(`[Marquee] ✗ Skipping item ${item.id} with bounds [${left}, ${top}] to [${right}, ${bottom}]`);
+      }
+
+      return intersects;
+    })
     .map((item) => item.id);
 
   console.log('[Marquee] Items found:', idsInBox);
@@ -259,6 +280,7 @@ const handleMouseUp = (e: React.MouseEvent) => {
           <g>
             {items.map((item) => {
               const isSelected = selectedIds.includes(item.id);
+console.log(`[Render] Item ${item.id} is ${isSelected ? 'ACTIVE' : 'inactive'}`);
               const size = 40;
               const half = size / 2;
 
